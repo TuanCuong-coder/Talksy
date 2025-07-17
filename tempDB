@@ -1,0 +1,94 @@
+DROP DATABASE IF EXISTS talksy;
+CREATE DATABASE talksy;
+USE talksy;
+
+-- 1. Bảng người dùng
+CREATE TABLE users (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(100) NOT NULL,                   -- Tên hiển thị
+    email VARCHAR(100) UNIQUE NOT NULL,           -- Email đăng nhập
+    password_hash VARCHAR(255) NOT NULL,          -- Mật khẩu đã mã hoá (bcrypt hash)
+    level ENUM('A1','A2','B1','B2','C1','C2') DEFAULT 'A1', -- Trình độ tiếng Anh
+    avatar_url TEXT,                              -- Ảnh đại diện (tùy chọn)
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 2. Bảng bài đọc
+CREATE TABLE readings (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    content TEXT NOT NULL,                        -- Nội dung đoạn văn
+    level ENUM('A1','A2','B1','B2','C1','C2'),     -- Mức độ
+    created_by INT,                               -- ID người tạo bài (null nếu do hệ thống)
+    is_community_post BOOLEAN DEFAULT FALSE,      -- TRUE nếu là bài cộng đồng đăng
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL
+);
+
+-- 3. Bảng ghi âm và kết quả
+CREATE TABLE records (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    user_id INT NOT NULL,                         -- Người đọc
+    reading_id INT NOT NULL,                      -- Bài được đọc
+    audio_url TEXT NOT NULL,                      -- Đường dẫn file ghi âm
+    score_pronunciation FLOAT,                    -- Điểm phát âm
+    score_fluency FLOAT,                          -- Điểm lưu loát
+    score_intonation FLOAT,                       -- Điểm ngữ điệu
+    score_overall FLOAT,                          -- Tổng điểm trung bình
+    comment TEXT,                                 -- Nhận xét từ AI (GPT)
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (reading_id) REFERENCES readings(id) ON DELETE CASCADE
+);
+
+-- 4. Bảng thống kê tổng thể người dùng
+CREATE TABLE user_stats (
+    user_id INT PRIMARY KEY,
+    total_records INT DEFAULT 0,                  -- Tổng số bài đã luyện
+    avg_score FLOAT DEFAULT 0,                    -- Điểm trung bình chung
+    best_score FLOAT DEFAULT 0,                   -- Điểm cao nhất
+    last_practice DATETIME,                       -- Lần luyện gần nhất
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+-- 5. Bảng like bài đọc cộng đồng
+CREATE TABLE reading_likes (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    user_id INT NOT NULL,
+    reading_id INT NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY (user_id, reading_id),             -- Mỗi user chỉ được like 1 lần
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (reading_id) REFERENCES readings(id) ON DELETE CASCADE
+);
+
+-- 6. Bảng bình luận trong cộng đồng
+CREATE TABLE reading_comments (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    user_id INT NOT NULL,
+    reading_id INT NOT NULL,
+    content TEXT NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (reading_id) REFERENCES readings(id) ON DELETE CASCADE
+);
+
+-- 7. Bảng huy hiệu (badge) & thành tích
+CREATE TABLE user_badges (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    user_id INT NOT NULL,
+    badge_name VARCHAR(100) NOT NULL,             -- Ví dụ: "5 ngày liên tục", "Điểm 9.0+"
+    awarded_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+-- 8. View hỗ trợ thống kê bài cộng đồng
+CREATE VIEW community_reading_stats AS
+SELECT 
+    r.id AS reading_id,
+    COUNT(DISTINCT re.user_id) AS total_users,
+    AVG(re.score_overall) AS avg_score,
+    MAX(re.score_overall) AS max_score
+FROM readings r
+JOIN records re ON r.id = re.reading_id
+WHERE r.is_community_post = TRUE
+GROUP BY r.id;
